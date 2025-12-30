@@ -7,6 +7,11 @@
 *.iml
 *.ipr
 mlops_hw/logs/
+mlops_hw/outputs/
 *__pycache__
 *.ipynb
 .DS_Store
+mlruns/
+mlartifacts/
+mlflow.db
+*.db

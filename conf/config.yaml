@@ -1,0 +1,19 @@
+defaults:
+  - image_model  
+  - text_model  
+  - data 
+  - train 
+  - mlflow 
+  - _self_
+
+lr_joint: 1e-3
+weight_decay: 1e-5
+momentum : 0.9
+alpha: 2.0
+beta: 100.0
+base : 0.7
+metriks_k : [5, 10, 50]
+
+
+
+

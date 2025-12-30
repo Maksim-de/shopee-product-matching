@@ -1,68 +1,108 @@
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, MLFlowLogger
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print(os.path.abspath(__file__))
 from models.joint_model import *
 from data.preprocess_data import *
+import mlflow
 
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
+@hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def train_model(
-    df_path="../data/data.csv",
-    little_filter_count=3,
-    train_ratio=0.8,
-    image_dir="../data/train_images/",
+    cfg: DictConfig
 ):
-    # 2. Инициализируем модель
+
+    print(cfg.text_model)
+    print(cfg.image_model)
+    print(cfg.data)
+    print(cfg.train)
+    print(cfg.mlflow)
+    print(torch.backends.mps.is_available())
+    print(torch.backends.mps.is_built())
+
+    if cfg.mlflow.get("tracking_uri"):
+        mlflow.set_tracking_uri(cfg.mlflow.tracking_uri)
+    
+    experiment_name = cfg.mlflow.get("experiment_name", "shopee_experiment")
+    mlflow.set_experiment(experiment_name)
+
     model = MultiModalLightningModule(
-        lr_image=1e-4,
-        lr_text=5e-5,
-        lr_joint=1e-3,
-        weight_decay=1e-5,
-        alpha=2.0,
-        beta=100.0,
-        base=0.7,
-        retrieval_k_values=[1, 10, 50],
+        lr_image=cfg.image_model.lr_image,
+        lr_text=cfg.text_model.lr_text,
+        lr_joint=cfg.lr_joint,
+        weight_decay=cfg.weight_decay,
+        alpha=cfg.alpha,
+        beta=cfg.beta,
+        base=cfg.base,
+        momentum=cfg.momentum,
+        retrieval_k_values= cfg.metriks_k,
     )
 
+
     datamodule = preprocess_data_for_model(
-        df_path, little_filter_count, model.tokenizator, train_ratio, image_dir
+        df_path = cfg.data.df_path,
+        little_filter_count = cfg.data.little_filter_count,
+        tokenizer = model.tokenizator,  
+        train_ratio = cfg.data.train_ratio,  
+        image_dir = cfg.data.image_dir,
+        num_workers = cfg.data.num_workers,
+        prefetch_factor = cfg.data.prefetch_factor,
+        p_sampler = cfg.data.p_sampler,
+        k_sampler = cfg.data.k_sampler,
+        
     )
 
     checkpoint_callback = ModelCheckpoint(
-        monitor="val_precision@50",
+        monitor="val_precision@10",
         mode="max",
         save_top_k=3,
-        filename="best-{epoch:02d}-{val_precision@50:.4f}",
+        filename="best-{epoch:02d}-{val_precision@10:.4f}",
         save_last=True,
         verbose=True,
     )
 
-    logger = TensorBoardLogger(save_dir="./logs", name="multimodal_model", default_hp_metric=False)
+    tb_logger = TensorBoardLogger(save_dir="./logs", name="multimodal_model", default_hp_metric=False)
+
+    mlflow_logger = MLFlowLogger(
+        experiment_name=experiment_name,
+        run_name=cfg.mlflow.get("run_name", f"run_{os.environ.get('USER', 'unknown')}"),
+        tracking_uri=cfg.mlflow.get("tracking_uri", "file:./mlruns"),
+        tags={
+            "project": "shopee",
+            "user": os.environ.get("USER", "unknown"),
+            "device": "mps" if torch.backends.mps.is_available() else "cpu",
+        },
+        log_model=True,  
+    )
+
+    loggers = [tb_logger, mlflow_logger]
+
+    mlflow_logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
 
     trainer = Trainer(
-        max_epochs=3,
-        # devices=1 if torch.cuda.is_available() else None,
-        # accelerator="cpu",  # Явно указываем CPU
-        accelerator='auto',
-        logger=logger,
+        max_epochs=cfg.train.max_epochs,
+        accelerator="mps",  
+        logger=loggers,
         callbacks=[checkpoint_callback],
-        log_every_n_steps=10,
-        check_val_every_n_epoch=1,
-        gradient_clip_val=1.0,
-        accumulate_grad_batches=1,
-        enable_progress_bar=True,
-        deterministic=False,
-        precision="16-mixed" if torch.cuda.is_available() else "32-true",
+        log_every_n_steps=cfg.train.log_every_n_steps,
+        check_val_every_n_epoch=cfg.train.check_val_every_n_epoch,
+        gradient_clip_val=cfg.train.gradient_clip_val,
+        accumulate_grad_batches=cfg.train.accumulate_grad_batches,
+        enable_progress_bar=cfg.train.enable_progress_bar,
+        deterministic=cfg.train.deterministic,
         # Добавляем для отладки
-        num_sanity_val_steps=2,  # проверяем 2 валидационных шага перед обучением
+        num_sanity_val_steps=cfg.train.num_sanity_val_steps,  # проверяем 2 валидационных шага перед обучением
     )
 
     trainer.fit(model, datamodule=datamodule)
 
     best_model = MultiModalLightningModule.load_from_checkpoint(checkpoint_callback.best_model_path)
+    
 
     return best_model
 

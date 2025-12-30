@@ -1,0 +1,5 @@
+image_model:
+  lr_image : 1e-4
+  embedding_size: 256
+  pretrained : true
+  

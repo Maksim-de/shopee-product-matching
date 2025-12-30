@@ -1,0 +1,6 @@
+text_model:
+  lr_text: 5e-5
+  # type: "resnet50"
+  embedding_size: 256
+  pretrained : true
+  

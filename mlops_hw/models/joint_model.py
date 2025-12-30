@@ -46,33 +46,55 @@ def compute_retrieval_metrics(embeddings, labels, k_values=50):
     all_recalls = []
     all_precisions = []
     all_f1 = []
+    ndcg_scores = []
 
     for i in range(n_samples):
-      neighbor_indices = indices[i, 1:k_values+1]
-      neighbor_labels = labels[neighbor_indices]
+        neighbor_indices = indices[i, 1:k_values+1]
+        neighbor_labels = labels[neighbor_indices]
+        
 
-            # Сколько соседей имеют тот же label?
-      correct = np.sum(neighbor_labels == labels[i])
-      total_relevant_items = np.sum(labels == labels[i]) - 1
-      if total_relevant_items > 0:
-        recall_i = correct / total_relevant_items
-      else:
-        recall_i = 0.0
+        # Сколько соседей имеют тот же label?
+        correct = np.sum(neighbor_labels == labels[i])
+        total_relevant_items = np.sum(labels == labels[i]) - 1
+        if total_relevant_items > 0:
+            recall_i = correct / total_relevant_items
+        else:
+            recall_i = 0.0
 
-      precision_i = correct / k_values
+        precision_i = correct / k_values
 
-      if (precision_i + recall_i) > 0:
-        f1_i = 2 * (precision_i * recall_i) / (precision_i + recall_i)
-      else:
-        f1_i = 0.0
-      all_recalls.append(recall_i)
-      all_precisions.append(precision_i)
-      all_f1.append(f1_i)
+        if (precision_i + recall_i) > 0:
+            f1_i = 2 * (precision_i * recall_i) / (precision_i + recall_i)
+        else:
+            f1_i = 0.0
+        all_recalls.append(recall_i)
+        all_precisions.append(precision_i)
+        all_f1.append(f1_i)
+        
+
+        relevance_vector = (neighbor_labels == labels[i]).astype(float)
+        dcg = 0.0
+        for j, rel in enumerate(relevance_vector, start=1):
+                dcg += rel / np.log2(j + 1)
+        
+       
+        num_relevant = min(total_relevant_items, k_values)
+        idcg = 0.0
+        for j in range(1, num_relevant + 1):
+            idcg += 1.0 / np.log2(j + 1)
+        
+        # NDCG = DCG / IDCG
+        if idcg > 0:
+            ndcg_i = dcg / idcg
+        else:
+            ndcg_i = 0.0
+        ndcg_scores.append(ndcg_i)
 
         # Усредняем по всем запросам
-      metrics[f'recall@{k_values}'] = np.mean(all_recalls)
-      metrics[f'precision@{k_values}'] = np.mean(all_precisions)
-      metrics[f'f1@{k_values}'] = np.mean(all_f1)
+    metrics[f'recall@{k_values}'] = np.mean(all_recalls)
+    metrics[f'precision@{k_values}'] = np.mean(all_precisions)
+    metrics[f'f1@{k_values}'] = np.mean(all_f1)
+    metrics[f'ndcg@{k_values}'] = np.mean(ndcg_scores)
 
     return metrics
 
@@ -105,7 +127,8 @@ class MultiModalLightningModule(pl.LightningModule):
         alpha=2.0,
         beta=100.0,
         base=0.7,
-        retrieval_k_values=[1, 10, 50],  # Добавил K значения для метрик
+        momentum = 0.9,
+        retrieval_k_values=[5, 10, 50],  # Добавил K значения для метрик
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["text_model", "image_model"])
@@ -115,6 +138,7 @@ class MultiModalLightningModule(pl.LightningModule):
         self.model = JointModel(text_model, image_model)
         self.tokenizator = text_model.tokenizator
         self.criterion = MultiSimilarityLoss(alpha=alpha, beta=beta, base=base)
+        self.momentum = momentum
 
     def forward(self, image_input, text_input):
         return self.model(image_input, text_input)
@@ -148,11 +172,10 @@ class MultiModalLightningModule(pl.LightningModule):
         # Проверяем, что есть данные
         if not self.validation_step_outputs:
             # Логируем нулевые значения
-            self.log("val_loss", torch.tensor(0.0), prog_bar=True)
             for k in self.hparams.retrieval_k_values:
                 self.log(f"val_recall@{k}", torch.tensor(0.0), prog_bar=(k == 50))
                 self.log(f"val_precision@{k}", torch.tensor(0.0), prog_bar=(k == 50))
-                self.log(f"val_f1@{k}", torch.tensor(0.0), prog_bar=(k == 50))
+                self.log(f"val_F1@{k}", torch.tensor(0.0), prog_bar=(k == 50))
             self.validation_step_outputs.clear()
             return
 
@@ -165,7 +188,7 @@ class MultiModalLightningModule(pl.LightningModule):
 
             # Средний loss
             avg_loss = torch.stack([x["val_loss"] for x in self.validation_step_outputs]).mean()
-            self.log("val_loss", avg_loss, prog_bar=True)
+            # self.log("val_loss", avg_loss, prog_bar=True)
 
             # Вычисляем метрики
             if len(all_embeddings) > 0 and len(all_labels) > 0:
@@ -179,7 +202,7 @@ class MultiModalLightningModule(pl.LightningModule):
                         # Логируем все метрики
                         for metric_name, metric_value in metrics.items():
                             log_name = f"val_{metric_name}"
-                            self.log(log_name, metric_value, prog_bar=(metric_name == "recall@50"))
+                            self.log(log_name, metric_value, prog_bar=(metric_name == f"recall@{k}"))
 
                     except Exception as e:
                         print(f"Ошибка при вычислении метрик для k={k}: {e}")
@@ -196,7 +219,7 @@ class MultiModalLightningModule(pl.LightningModule):
         except Exception as e:
             print(f"Ошибка в on_validation_epoch_end: {e}")
             # Логируем нулевые значения
-            self.log("val_loss", torch.tensor(0.0), prog_bar=True)
+            # self.log("val_loss", torch.tensor(0.0), prog_bar=True)
             for k in self.hparams.retrieval_k_values:
                 self.log(f"val_recall@{k}", torch.tensor(0.0), prog_bar=(k == 50))
 
@@ -251,7 +274,7 @@ class MultiModalLightningModule(pl.LightningModule):
 
         # Создаем один оптимизатор с разными LR для разных групп
         optimizer = madgrad.MADGRAD(
-            param_groups, momentum=0.9, weight_decay=self.hparams.weight_decay
+            param_groups, momentum=self.momentum, weight_decay=self.hparams.weight_decay
         )
 
         return optimizer
