@@ -10,20 +10,9 @@ from pytorch_lightning.loggers import MLFlowLogger, TensorBoardLogger
 from shopee_product_matching.data.preprocess_data import preprocess_data_for_model
 from shopee_product_matching.models.joint_model import MultiModalLightningModule
 
-# import sys
-
-
-# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# print(os.path.abspath(__file__))
-
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def train_model(cfg: DictConfig):
-    print(cfg.text_model)
-    print(cfg.image_model)
-    print(cfg.data)
-    print(cfg.train)
-    print(cfg.mlflow)
 
     if cfg.mlflow.get("tracking_uri"):
         mlflow.set_tracking_uri(cfg.mlflow.tracking_uri)
@@ -105,7 +94,7 @@ def train_model(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    # Отключаем multiprocessing для диагностики
+    # Отключаем multiprocessing 
     os.environ["OMP_NUM_THREADS"] = "1"
 
     model = train_model()
