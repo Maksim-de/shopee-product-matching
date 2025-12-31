@@ -70,7 +70,7 @@ def train_model(cfg: DictConfig):
 
     trainer = Trainer(
         max_epochs=cfg.train.max_epochs,
-        accelerator="mps",
+        accelerator="auto",
         logger=loggers,
         callbacks=[checkpoint_callback],
         log_every_n_steps=cfg.train.log_every_n_steps,
