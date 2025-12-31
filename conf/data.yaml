@@ -1,6 +1,6 @@
 data:
-  df_path: "../data/data.csv"
-  image_dir: "../data/train_images/"
+  df_path: "data/data.csv"
+  image_dir: "data/train_images/"
   little_filter_count: 3
   train_ratio: 0.8
   num_workers: 4

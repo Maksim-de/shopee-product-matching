@@ -2,12 +2,13 @@ import os
 
 import hydra
 import mlflow
-from data.preprocess_data import preprocess_data_for_model
-from models.joint_model import MultiModalLightningModule
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import MLFlowLogger, TensorBoardLogger
+
+from shopee_product_matching.data.preprocess_data import preprocess_data_for_model
+from shopee_product_matching.models.joint_model import MultiModalLightningModule
 
 # import sys
 
@@ -96,7 +97,9 @@ def train_model(cfg: DictConfig):
 
     trainer.fit(model, datamodule=datamodule)
 
-    best_model = MultiModalLightningModule.load_from_checkpoint(checkpoint_callback.best_model_path)
+    best_model = MultiModalLightningModule.load_from_checkpoint(
+        checkpoint_callback.best_model_path, weights_only=False
+    )
 
     return best_model
 

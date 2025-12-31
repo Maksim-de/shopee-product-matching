@@ -1,5 +1,6 @@
 import pandas as pd
-from data.datamodule import ShopeeDataModule
+
+from shopee_product_matching.data.datamodule import ShopeeDataModule
 
 
 def create_datamodule(

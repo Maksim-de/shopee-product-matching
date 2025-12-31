@@ -3,9 +3,10 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.image_model import SimpleMobileNetV3
-from models.text_models import TinyBERTWrapper
 from pytorch_metric_learning.losses import MultiSimilarityLoss
+
+from shopee_product_matching.models.image_model import SimpleMobileNetV3
+from shopee_product_matching.models.text_models import TinyBERTWrapper
 
 
 def compute_retrieval_metrics(embeddings, labels, k_values=50):
